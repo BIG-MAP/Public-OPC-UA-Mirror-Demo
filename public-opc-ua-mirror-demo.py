@@ -1,36 +1,35 @@
 # -*- coding: utf-8 -*-
 """
-Spyder Editor
+Public OPC UA Mirror Demo
 
-This is a temporary script file.
+Creates following setup:
+    
+(ext. Client* <->) Physical Device <-> Mirror Server <-> Virtual Device (<-> ext. Client*)
+
+*not part of this code, use e. g. a GUI client
+
 """
 import logging
 import asyncio
 import sys
 sys.path.insert(0, "..")
 
-from asyncua import ua, Server, Client
-from asyncua.common.methods import uamethod
+from asyncua import Server, Client
+import time
+import math
 
-
-#logging.basicConfig(level=logging.INFO)
 logging.basicConfig(level=logging.ERROR)
 _logger = logging.getLogger('asyncua')
 
-update_period_s = 5
+#update period for servers 1
+update_period_s = 1
 
-@uamethod
-def func(parent, value):
-    return value * 2
-
-shared = type('', (), {})()
-shared.value = 0
-
+#create some async running task to emulate multiple servers and clients in a single program
 async def main():
-    task1 = asyncio.create_task(main_server_1())
-    task2 = asyncio.create_task(main_server_2())
-    task3 = asyncio.create_task(client_1_1(shared))
-    task4 = asyncio.create_task(client_1_2(shared))
+    task1 = asyncio.create_task(main_physical_device())
+    task2 = asyncio.create_task(main_virtual_device())
+    task3 = asyncio.create_task(main_mirror_client_1(shared))
+    task4 = asyncio.create_task(main_mirror_client_2(shared))
     await task1
     await task2
     await task3
@@ -38,11 +37,13 @@ async def main():
     
     #await asyncio.gather(client_1_1(shared_value), client_1_2(shared_value))
     
-async def main_server_1():
+async def main_physical_device():
+    #this code runs on the the physical device
+    
     # setup our server
     server = Server()
     await server.init()
-    server.set_endpoint('opc.tcp://0.0.0.0:4840/freeopcua/server/')
+    server.set_endpoint('opc.tcp://0.0.0.0:4840/physical/server/')
 
     # setup our own namespace, not really necessary but should as spec
     uri = 'http://examples.freeopcua.github.io'
@@ -50,24 +51,32 @@ async def main_server_1():
 
     # populating our address space
     # server.nodes, contains links to very common nodes like objects and root
-    myobj = await server.nodes.objects.add_object(idx, 'MyObject')
-    myvar = await myobj.add_variable(idx, 'MyVariable', 6.7)
-    # Set MyVariable to be writable by clients
-    await myvar.set_writable()
-    await server.nodes.objects.add_method(ua.NodeId('ServerMethod', 2), ua.QualifiedName('ServerMethod', 2), func, [ua.VariantType.Int64], [ua.VariantType.Int64])
-    _logger.info('Starting server!')
+    component = await server.nodes.objects.add_object(idx, 'Component')
+    sensor_value = await component.add_variable(idx, 'SensorValue', 6.7)
+    command_id = await component.add_variable(idx, 'CommandID', 0)
+    # Set CommandID to be writable by clients
+    await command_id.set_writable()
+    
+    _logger.info('Starting Physical Device Server!')
     async with server:
         while True:
             await asyncio.sleep(update_period_s)
-            new_val = await myvar.get_value() + 0.1
-            _logger.info('[SERVER] Set value of %s to %.1f', myvar, new_val)
-            await myvar.write_value(new_val)
+            #read command id
+            new_command_val = await command_id.read_value()
+            print('[Physical Device] value of %s is %.1f', command_id, new_command_val)
+            #generate new sensor value
+            new_sensor_val = math.sin(new_command_val*time.time())
+            print('[Physical Device] Set value of %s to %.1f', sensor_value, new_sensor_val)
+            await sensor_value.write_value(new_sensor_val)
+
             
-async def main_server_2():
+async def main_virtual_device():
+    #this code runs on the the cloud server
+    
     # setup our server
     server = Server()
     await server.init()
-    server.set_endpoint('opc.tcp://0.0.0.0:4841/freeopcua/server2/')
+    server.set_endpoint('opc.tcp://0.0.0.0:4841/virtual/server/')
 
     # setup our own namespace, not really necessary but should as spec
     uri = 'http://examples.freeopcua.github.io'
@@ -75,63 +84,75 @@ async def main_server_2():
 
     # populating our address space
     # server.nodes, contains links to very common nodes like objects and root
-    myobj = await server.nodes.objects.add_object(idx, 'MyObject2')
-    myvar = await myobj.add_variable(idx, 'MyVariable2', 1.7)
-    # Set MyVariable to be writable by clients
-    await myvar.set_writable()
-    await server.nodes.objects.add_method(ua.NodeId('ServerMethod2', 2), ua.QualifiedName('ServerMethod2', 2), func, [ua.VariantType.Int64], [ua.VariantType.Int64])
-    _logger.info('Starting server2!')
+    component = await server.nodes.objects.add_object(idx, 'Component')
+    sensor_value = await component.add_variable(idx, 'SensorValue', 6.7)
+    command_id = await component.add_variable(idx, 'CommandID', 0)
+    # Set CommandID to be writable by clients
+    await command_id.set_writable()
+     # Set SensorValue to be writable by clients (for the mirror server)
+    await sensor_value.set_writable()
+    
+    _logger.info('Starting Virtual Device Server!')
     async with server:
         while True:
             await asyncio.sleep(update_period_s)
-            new_val = await myvar.get_value()# + 0.1
-            _logger.info('[SERVER2] Set value of %s to %.1f', myvar, new_val)
-            #await myvar.write_value(new_val)
-            
-async def client_1_1(shared):
-    url = 'opc.tcp://localhost:4840/freeopcua/server/'
-    url2 = 'opc.tcp://localhost:4841/freeopcua/server/'
-    # url = 'opc.tcp://commsvr.com:51234/UA/CAS_UA_Server'
+            #update values
+            new_sensor_val = await sensor_value.read_value()
+            print('[Virtual Device] value of %s is %.1f', sensor_value, new_sensor_val)
+            new_command_val = await command_id.read_value()
+            print('[Virtual Device] value of %s is %.1f', command_id, new_command_val)
+  
+#create a shared object for the internal data exchange in client_1
+shared = type('', (), {})()
+shared.sensor_value = 0  
+shared.command_id = 0         
+  
+async def main_mirror_client_1(shared):
+    #this client runs on an (local) mirror server together with main_mirror_client_2 and is connected to the physical device server
+    
+    url = 'opc.tcp://localhost:4840/physical/server/'
+
     async with Client(url=url) as client:
-        # Client has a few methods to get proxy to UA nodes that should always be in address space such as Root or Objects
-        # Node objects have methods to read and write node attributes as well as browse or populate address space
-        _logger.info('Children of root are: %r', await client.nodes.root.get_children())
 
         uri = 'http://examples.freeopcua.github.io'
         idx = await client.get_namespace_index(uri)
-        # get a specific node knowing its node id
-        # var = client.get_node(ua.NodeId(1002, 2))
-        # var = client.get_node("ns=3;i=2002")
-        var = await client.nodes.root.get_child(["0:Objects", f"{idx}:MyObject", f"{idx}:MyVariable"])
+
+        sensor_value = await client.nodes.root.get_child(["0:Objects", f"{idx}:Component", f"{idx}:SensorValue"])
+        command_id = await client.nodes.root.get_child(["0:Objects", f"{idx}:Component", f"{idx}:CommandID"])
         while True:
             await asyncio.sleep(update_period_s)
-            shared.value = await var.read_value()
-            print("[Client1] Read My variable", var, shared.value)
-        # print(var)
-        # await var.read_data_value() # get value of node as a DataValue object
-        # await var.read_value() # get value of node as a python builtin
-        # await var.write_value(ua.Variant([23], ua.VariantType.Int64)) #set node value using explicit data type
-        # await var.write_value(3.9) # set node value using implicit data type
-async def client_1_2(shared):
-    url = 'opc.tcp://localhost:4840/freeopcua/server/'
-    url2 = 'opc.tcp://localhost:4841/freeopcua/server/'
-    # url = 'opc.tcp://commsvr.com:51234/UA/CAS_UA_Server'
-    async with Client(url=url2) as client2:
-        _logger.info('Children of root are: %r', await client2.nodes.root.get_children())
+            #read sensor value from physical device
+            shared.sensor_value = await sensor_value.read_value()
+            print("[Mirror_Client1] Read from physical ", sensor_value, shared.sensor_value)
+            #write command id to physical device
+            await command_id.write_value(shared.command_id)
+            new_command_value = await command_id.read_value()
+            print("[Mirror_Client1] Write to physical ", command_id, new_command_value)
+            
+async def main_mirror_client_2(shared):
+    #this client runs on an (local) mirror server together with main_mirror_client_1 and is connected to the virtual device server
+    
+    url = 'opc.tcp://localhost:4841/virtual/server/'
+
+    async with Client(url=url) as client:
 
         uri = 'http://examples.freeopcua.github.io'
-        idx = await client2.get_namespace_index(uri)
-        # get a specific node knowing its node id
-        # var = client.get_node(ua.NodeId(1002, 2))
-        # var = client.get_node("ns=3;i=2002")
-        var = await client2.nodes.root.get_child(["0:Objects", f"{idx}:MyObject2", f"{idx}:MyVariable2"])
+        idx = await client.get_namespace_index(uri)
+
+        sensor_value = await client.nodes.root.get_child(["0:Objects", f"{idx}:Component", f"{idx}:SensorValue"])
+        command_id = await client.nodes.root.get_child(["0:Objects", f"{idx}:Component", f"{idx}:CommandID"])
+        
         while True:
             await asyncio.sleep(update_period_s)
-            await var.write_value(shared.value)
-            value = await var.read_value()
-            print("[Client2] Write My variable", var, value)
+            #write sensor value to virtual device
+            await sensor_value.write_value(shared.sensor_value)
+            new_sensor_value = await sensor_value.read_value()
+            print("[Mirror_Client2] Write to virtual ", sensor_value, new_sensor_value)
+            #read command id from virtual device
+            shared.command_id = await command_id.read_value()
+            print("[Mirror_Client2] Read from virtual ", command_id, shared.command_id)
 
-
+#start all tasks
 if __name__ == '__main__':
     asyncio.run(main())
     #await main()
