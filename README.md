@@ -11,8 +11,10 @@ Demo code how to share data from a local OPC UA server to the public without all
 5. Open 'public-opc-ua-mirror-demo.py' or copy-paste the file content in a new script file and run it
 6. Open a Python-Console and run opcua-client, e.g. `..\python-3.8.7.amd64\Scripts\opcua-client.exe` to start one GUI client (1)
 7. Open a Python-Console and run opcua-client, e.g. `..\python-3.8.7.amd64\Scripts\opcua-client.exe` to start another GUI client (2)
-8. Connect client (1) to `opc.tcp://0.0.0.0:4840/` ('Real' Device) and client (2) to `opc.tcp://0.0.0.0:4841/` (Virtual Device)
-9. You can now read and write variables in client (2) and track the changes on the 'real' device with client (1)
+8. Connect client (1) to `opc.tcp://0.0.0.0:4840/` (Physical Device) and client (2) to `opc.tcp://0.0.0.0:4841/` (Virtual Device)
+9. You can now read and write variables in client (2) and track the changes on the physical device with client (1)
+
+![GUIs with connected clients](docs/GUI_demo.PNG)
 
 
 # Background
