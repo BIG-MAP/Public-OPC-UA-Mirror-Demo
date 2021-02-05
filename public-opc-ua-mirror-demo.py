@@ -2,6 +2,10 @@
 """
 Public OPC UA Mirror Demo
 
+05.02.2021
+Simon Stier
+Fraunhofer ISC
+
 Creates following setup:
     
 (ext. Client* <->) Physical Device <-> Mirror Server <-> Virtual Device (<-> ext. Client*)
@@ -22,7 +26,7 @@ logging.basicConfig(level=logging.ERROR)
 _logger = logging.getLogger('asyncua')
 
 #update period for servers 1
-update_period_s = 1
+update_period_s = 1.0
 
 #create some async running task to emulate multiple servers and clients in a single program
 async def main():
@@ -53,7 +57,7 @@ async def main_physical_device():
     # server.nodes, contains links to very common nodes like objects and root
     component = await server.nodes.objects.add_object(idx, 'Component')
     sensor_value = await component.add_variable(idx, 'SensorValue', 6.7)
-    command_id = await component.add_variable(idx, 'CommandID', 0)
+    command_id = await component.add_variable(idx, 'CommandID', 1)
     # Set CommandID to be writable by clients
     await command_id.set_writable()
     
@@ -86,7 +90,7 @@ async def main_virtual_device():
     # server.nodes, contains links to very common nodes like objects and root
     component = await server.nodes.objects.add_object(idx, 'Component')
     sensor_value = await component.add_variable(idx, 'SensorValue', 6.7)
-    command_id = await component.add_variable(idx, 'CommandID', 0)
+    command_id = await component.add_variable(idx, 'CommandID', 1)
     # Set CommandID to be writable by clients
     await command_id.set_writable()
      # Set SensorValue to be writable by clients (for the mirror server)
